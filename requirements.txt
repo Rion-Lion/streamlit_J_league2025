@@ -7,3 +7,4 @@ altair
 matplotlib
 seaborn
 mplsoccer
+vega-datasets
