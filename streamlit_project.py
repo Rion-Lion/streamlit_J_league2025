@@ -215,8 +215,12 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     focal_team = None
     if color_by == '注目チーム':
         all_teams = sorted(team_avg_df['Team'].unique().tolist())
-        default_index = all_teams.index('Yokohama FC') if 'Yokohama FC' in all_teams else 0
+        default_index = all_teams.index('Cerezo Osaka') if 'Cerezo Osaka' in all_teams else 0
         focal_team = st.selectbox('注目チームを選択', all_teams, index=default_index, key='scatter_focal_team_home')
+
+    # 💡 修正: hover_data に x_var と y_var を動的に追加する
+    # チーム名とリーグ、選択指標を表示するリスト
+    hover_data_list = ['Team', 'League', x_var, y_var]
 
     # Plotly Expressで散布図を描画
     if color_by == 'リーグ':
@@ -226,7 +230,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             y=y_var, 
             color='League', 
             color_discrete_map=league_color_map, 
-            hover_data=['Team', 'League'],
+            hover_data=hover_data_list,
             title=f'チーム別平均値: {y_var} vs {x_var} (リーグ別)',
             height=600,
         )
@@ -249,7 +253,8 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             y=y_var, 
             color='Highlight', 
             color_discrete_map=highlight_color_map,
-            hover_data=['Team', 'League'],
+            # hover_dataにはHighlightを含めず、代わりにTeamを含めることで、Highlightの内容は表示されなくなる。
+            hover_data=['Team', 'League', x_var, y_var], 
             title=f'チーム別平均値: {y_var} vs {x_var} (注目チーム: {focal_team})',
             height=600,
         )
@@ -266,7 +271,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             y=y_var, 
             color='Team', 
             color_discrete_map=all_team_colors,
-            hover_data=['Team', 'League'],
+            hover_data=hover_data_list,
             title=f'チーム別平均値: {y_var} vs {x_var} (チーム別)',
             height=600,
         )
