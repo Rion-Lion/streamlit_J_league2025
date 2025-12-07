@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
 
+# --- 0. グローバル設定 ---
+st.set_page_config(layout="wide")
 st.subheader('All data by SkillCorner')
 
 # --- 1. データと変数定義 (グローバルスコープ) ---
@@ -28,12 +30,29 @@ def get_data(league_key):
         # ローディングインジケータを表示 (Streamlit Cloudで役立つ)
         with st.spinner(f'{league_key}データをロード中...'):
             df = pd.read_csv(file_path)
+            # リーグ情報を追加
+            df['League'] = league_key
             # st.success(f"{league_key}データのロードに成功しました。") # デバッグ用
             return df
     except Exception as e:
         st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。URLを確認してください: {file_path}")
         # st.exception(e) # デバッグ用
         return pd.DataFrame()
+
+# 💡 新規: 全リーグデータを結合する関数
+@st.cache_data(ttl=60*15)
+def get_all_league_data():
+    all_dfs = []
+    for league_key in LEAGUE_FILE_MAP.keys():
+        df = get_data(league_key)
+        if not df.empty:
+            all_dfs.append(df)
+    
+    if not all_dfs:
+        return pd.DataFrame()
+        
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    return combined_df
 
 # 📌 チームカラー定義 (グローバルに配置)
 TEAM_COLORS = {
@@ -63,6 +82,7 @@ available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','H
 
 # --- 2. 描画ロジック関数 (カスタムランキングを共通化) ---
 def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
+    # ... (変更なし: 元の render_custom_ranking 関数を維持) ...
     """カスタムランキング（Matplotlib）を描画する"""
     st.markdown("### 🏆 カスタムランキング作成")
     
@@ -95,8 +115,18 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
         sort_method = True 
 
     # 最終的なランキングデータフレームの作成
-    indexdf_short = rank_df.sort_values(by=[rank_var], ascending=sort_method)[['Team', rank_var]].reset_index(drop=True)[::-1]
+    # indexdf_short = rank_df.sort_values(by=[rank_var], ascending=sort_method)[['Team', rank_var]].reset_index(drop=True)[::-1]
+    # ※ Matplotlibの描画処理が下から上なので、昇順/降順を明確に制御
+    if sort_method: # Min (小さい方が良い)
+        # 昇順ソートして、ランキングは下から
+        indexdf_short = rank_df.sort_values(by=[rank_var], ascending=True)[['Team', rank_var]].reset_index(drop=True)
+    else: # Total, Average, Max (大きい方が良い)
+        # 降順ソートして、ランキングは下から
+        indexdf_short = rank_df.sort_values(by=[rank_var], ascending=False)[['Team', rank_var]].reset_index(drop=True)
     
+    # Matplotlibの都合上、描画順序を逆にする（1位が一番上になるように）
+    indexdf_short = indexdf_short[::-1]
+
     if indexdf_short.empty:
         st.warning("集計されたデータが空のため、ランキングを表示できません。")
         return
@@ -124,10 +154,13 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
         t_color = focal_color if is_focal else '#4A2E19'
         weight = 'bold' if is_focal else 'regular'
 
+        # Matplotlibの都合上、iの昇順（下から上）で描画される
+        rank = nrows - i # ランキングの計算（一番下が1位になるのを防ぐ）
+        
         for j, column in enumerate(columns):
             if column == 'Team':
-                rank = nrows - i
                 # ランキングの表示を調整
+                # 昇順ソートして[::-1]しているので、下から上に1位、2位...となる
                 text_label = f'{rank}     {team_name}' if rank < 10 else f'{rank}   {team_name}'
             else:
                 text_label = f'{round(indexdf_short[column].iloc[i],2)}'
@@ -159,6 +192,74 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
     st.pyplot(fig)
 
 
+# 💡 新規: Plotly Expressを使用した散布図描画関数
+def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dict):
+    """チーム別集計データに基づいて散布図を描画する"""
+    st.markdown("### 📊 J.League 全体分析：散布図")
+    st.markdown("チームごとの平均値を集計し、**2つの指標の関係性**を可視化します。")
+    
+    # データの集計: チームとリーグでグループ化し、全指標の平均を算出
+    # HOME画面ではJ1/J2/J3を比較するため、平均値（Average）を使用するのが一般的
+    if 'League' not in df.columns:
+        st.error("データに 'League' の列がありません。各リーグのデータロード関数（get_data）を確認してください。")
+        return
+        
+    team_avg_df = df.groupby(['Team', 'League'])[available_vars].mean().reset_index()
+
+    if team_avg_df.empty:
+        st.warning("集計データが空です。")
+        return
+
+    # UI要素の定義 (HOME全体でユニークなキーを設定)
+    col1, col2 = st.columns(2)
+    with col1:
+        x_var = st.selectbox('X軸の指標', available_vars, index=available_vars.index('Running Distance'), key='scatter_x_var_home')
+    with col2:
+        y_var = st.selectbox('Y軸の指標', available_vars, index=available_vars.index('HSR Distance'), key='scatter_y_var_home')
+        
+    color_by = st.radio('色分けの基準', ['リーグ', 'なし'], index=0, key='scatter_color_by_home')
+
+    # Plotly Expressで散布図を描画
+    color_col = 'League' if color_by == 'リーグ' else None
+    
+    # Jリーグ全体のカラーマッピングを準備
+    all_team_colors = {team: team_colors.get(team, '#999999') for team in team_avg_df['Team'].unique()}
+
+    if color_col == 'League':
+        # リーグで色分け (Plotlyのデフォルトカラーを使用)
+        fig = px.scatter(
+            team_avg_df, 
+            x=x_var, 
+            y=y_var, 
+            color=color_col, 
+            hover_data=['Team', 'League'],
+            title=f'チーム別平均値: {y_var} vs {x_var}',
+            height=600,
+        )
+    else:
+        # チームカラーで色分け
+        fig = px.scatter(
+            team_avg_df, 
+            x=x_var, 
+            y=y_var, 
+            color='Team', 
+            color_discrete_map=all_team_colors,
+            hover_data=['Team', 'League'],
+            title=f'チーム別平均値: {y_var} vs {x_var}',
+            height=600,
+        )
+
+    # レイアウトの調整
+    fig.update_layout(
+        xaxis_title=f'{x_var} (平均)',
+        yaxis_title=f'{y_var} (平均)',
+        hovermode="closest",
+    )
+    
+    # グラフを表示
+    st.plotly_chart(fig, use_container_width=True)
+
+
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
@@ -170,23 +271,36 @@ with st.sidebar:
 df = pd.DataFrame() 
 if selected in ['J1', 'J2', 'J3']:
     df = get_data(selected) 
+# 💡 変更: HOME選択時は全リーグデータをロード
 elif selected == 'HOME':
-    # HOMEではJ1をデフォルトでロード
-    df = get_data('J1') 
+    df = get_all_league_data()
 else:
     df = pd.DataFrame() 
 
 # --- 4. メインコンテンツの描画 ---
 
 if selected == 'HOME':
-    st.title('J.League Data Dashboard')
+    st.title('🇯🇵 J.League Data Dashboard: 全体分析')
     st.markdown('サイドバーからリーグを選択して、フィジカルデータ分析ダッシュボードをご利用ください。')
-    if not df.empty:
-        st.subheader("J1データプレビュー")
-        st.dataframe(df.head())
+    
+    if df.empty:
+        st.warning("⚠️ J1, J2, J3 のいずれのデータもロードできなかったため、全体分析を表示できません。")
+    else:
+        # 💡 新規: 散布図タブを追加
+        Scatter_tab, Preview_tab = st.tabs(['散布図分析', 'データプレビュー'])
+
+        with Scatter_tab:
+            render_scatter_plot(df, available_vars, TEAM_COLORS)
+
+        with Preview_tab:
+            st.subheader("全リーグデータプレビュー")
+            st.dataframe(df.head())
+            st.markdown(f"**ロードされたチーム数:** {df['Team'].nunique()} | **ロードされたデータ行数:** {len(df)}")
+
 
 # J1
 if selected == 'J1':
+    # ... (J1のロジックは変更なし。Custom_tab内の関数呼び出しは元のまま) ...
     
     if df.empty:
         st.warning("データがロードされていないため、J1スタッツを表示できません。")
@@ -257,6 +371,7 @@ if selected == 'J1':
 # 🚨 J2 リーグのコンテンツ
 # ------------------------------------
 elif selected == 'J2':
+    # ... (J2のロジックは変更なし) ...
     
     if df.empty:
         st.warning(f"⚠️ {selected} リーグのデータがロードできませんでした。ファイルが存在するか確認してください。")
@@ -321,6 +436,7 @@ elif selected == 'J2':
 # 🚨 J3 リーグのコンテンツ
 # ------------------------------------
 elif selected == 'J3':
+    # ... (J3のロジックは変更なし) ...
     
     if df.empty:
         st.warning(f"⚠️ {selected} リーグのデータがロードできませんでした。ファイルが存在するか確認してください。")
