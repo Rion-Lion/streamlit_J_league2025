@@ -215,7 +215,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     focal_team = None
     if color_by == '注目チーム':
         all_teams = sorted(team_avg_df['Team'].unique().tolist())
-        default_index = all_teams.index('Cerezo Osaka') if 'Cerezo Osaka' in all_teams else 0
+        default_index = all_teams.index('Yokohama FC') if 'Yokohama FC' in all_teams else 0
         focal_team = st.selectbox('注目チームを選択', all_teams, index=default_index, key='scatter_focal_team_home')
 
     # Plotly Expressで散布図を描画
