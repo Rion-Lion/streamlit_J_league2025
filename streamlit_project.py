@@ -12,7 +12,6 @@ import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
 
 # --- 0. グローバル設定 ---
-st.set_page_config(layout="wide")
 st.subheader('All data by SkillCorner')
 
 # --- 1. データと変数定義 (グローバルスコープ) ---
@@ -217,8 +216,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
         all_teams = sorted(team_avg_df['Team'].unique().tolist())
         default_index = all_teams.index('Cerezo Osaka') if 'Cerezo Osaka' in all_teams else 0
         focal_team = st.selectbox('注目チームを選択', all_teams, index=default_index, key='scatter_focal_team_home')
-
-    # 💡 修正: hover_data に x_var と y_var を動的に追加する
+        
     # チーム名とリーグ、選択指標を表示するリスト
     hover_data_list = ['Team', 'League', x_var, y_var]
 
