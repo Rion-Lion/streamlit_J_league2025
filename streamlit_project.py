@@ -113,7 +113,8 @@ TEAM_COLORS = {
 
 available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','HI Distance','HI Count',
                   'Distance TIP','Running Distance TIP','HSR Distance TIP','HSR Count TIP',
-                  'Sprint Distance TIP','Sprint Count TIP'] # TIP指標を追加
+                  'Sprint Distance TIP','Sprint Count TIP','Distance OTIP','Running Distance OTIP','HSR Distance OTIP','HSR Count OTIP',
+                  'Sprint Distance OTIP','Sprint Count OTIP'] # TIP/OTIP指標を追加
 
 
 # --- 2. 描画ロジック関数 (共通関数) ---
@@ -316,7 +317,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     st.plotly_chart(fig, use_container_width=True)
 
 
-# 💡 修正: 対戦相手比較機能を追加
+# 💡 修正: 自チームデータへの対戦相手チーム名結合処理を削除
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -333,7 +334,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     with col2:
         selected_var = st.selectbox('分析したい項目を選択', available_vars, key=f'trend_var_{league_name}')
     
-    # 💡 条件ボタンの追加
+    # 条件ボタンの追加
     show_opponent = st.checkbox('対戦相手のデータも表示する', key=f'show_opponent_{league_name}')
 
     # 2. 自チームデータ準備
@@ -357,12 +358,10 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         opponent_data = df[df['Match ID'].isin(match_ids) & (df['Team'] != selected_team)].copy()
         
         if not opponent_data.empty:
-            # 対戦相手の節番号を自チームのMatch IDからマッピングするためにマージキーを準備
-            # MatchdayはユニークなMatch IDに紐づいているため、MatchdayとMatch IDの対応表を作成
+            # MatchdayとMatch IDの対応表を作成
             matchday_map = team_match_df[['Matchday', 'Match ID']].drop_duplicates()
             
             # 対戦相手のMatch IDごとの平均値を計算
-            # ここで .agg() を使い、Team名を 'first' で取得して保持
             opponent_avg_df = opponent_data.groupby('Match ID').agg(
                 {selected_var: 'mean', 'Team': 'first'} 
             ).reset_index()
@@ -373,14 +372,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_avg_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # ホバーテキスト表示のために、自チームデータに対戦相手のチーム名を結合
-            # MatchdayとTeam (対戦相手) を結合
-            team_match_df = pd.merge(
-                team_match_df, 
-                opponent_match_df[['Matchday', 'Team']].rename(columns={'Team': 'Opponent_Team'}), 
-                on='Matchday', 
-                how='left'
-            )
+            # 📌 修正点: 自チームデータ (team_match_df) への対戦相手名 (Opponent_Team) の結合は削除。
+            # ホバー情報のカスタムデータにも含めない。
 
 
     # 4. Plotly Graph Objectsで折れ線グラフ描画
@@ -389,14 +382,10 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
 
     fig = go.Figure()
     
-    # 自チームの折れ線
-    # customdataに対戦相手のチーム名を含める
-    custom_data_self = team_match_df[['Opponent_Team']].values.tolist() if show_opponent else None
-    hovertemplate_self = f"<b>節 %{{x}}</b>: %{{y:.2f}}<br>"
-    if show_opponent:
-        hovertemplate_self += "<b>対戦相手</b>: %{{customdata[0]}}<extra>自チーム</extra>"
-    else:
-        hovertemplate_self += "<extra>自チーム</extra>"
+    # --- 自チームのホバーテンプレート ---
+    # 自チームのホバーでは、節と値のみを表示 (カスタムデータも不要)
+    hovertemplate_self = f"<b>節 %{{x}}</b>: %{{y:.2f}}<extra>自チーム</extra>"
+    custom_data_self = None
     
     fig.add_trace(go.Scatter(
         x=team_match_df['Matchday'],
@@ -409,9 +398,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         customdata=custom_data_self
     ))
     
-    # 対戦相手の折れ線 (条件がONの場合)
+    # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
-        # customdataに対戦相手のチーム名を含める
+        # 対戦相手のホバーでは、対戦相手のチーム名を引き続き表示する
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
         hovertemplate_opponent = f"<b>節 %{{x}}</b>: %{{y:.2f}}<br><b>対戦相手</b>: %{{customdata[0]}}<extra>対戦相手</extra>"
         
