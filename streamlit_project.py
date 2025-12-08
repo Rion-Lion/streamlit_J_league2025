@@ -12,6 +12,7 @@ import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
 
 # --- 0. グローバル設定 ---
+st.set_page_config(layout="wide")
 st.subheader('All data by SkillCorner')
 
 # --- 1. データと変数定義 (グローバルスコープ) ---
@@ -38,6 +39,11 @@ def get_data(league_key):
             df = pd.read_csv(file_path)
             # リーグ情報を追加
             df['League'] = league_key
+            # 節のデータが不足している場合、仮の列を追加（実際のデータに合わせる必要あり）
+            if 'Matchday' not in df.columns and len(df)>0:
+                 # 例として、行のインデックスを試合数として使用（節データがない場合の応急処置）
+                 st.warning(f"⚠️ {league_key}データに'Matchday'列がないため、節のトレンド分析は不正確になる可能性があります。")
+                 df['Matchday'] = df.groupby('Team').cumcount() + 1
             return df
     except Exception as e:
         st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。ファイルが存在するか確認してください。")
@@ -216,7 +222,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
         all_teams = sorted(team_avg_df['Team'].unique().tolist())
         default_index = all_teams.index('Cerezo Osaka') if 'Cerezo Osaka' in all_teams else 0
         focal_team = st.selectbox('注目チームを選択', all_teams, index=default_index, key='scatter_focal_team_home')
-        
+
     # チーム名とリーグ、選択指標を表示するリスト
     hover_data_list = ['Team', 'League', x_var, y_var]
 
@@ -284,6 +290,81 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     st.plotly_chart(fig, use_container_width=True)
 
 
+# 💡 新規: シーズン動向分析のための折れ線グラフ描画関数
+def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
+    """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する"""
+    st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
+    
+    if 'Match ID' not in df.columns:
+        st.error("⚠️ データに **'Match ID'** (節) 列が見つかりません。トレンド分析はスキップされます。")
+        st.info("データロード関数 `get_data` の中で、`'Match ID'` 列が生成されているか確認してください。")
+        return
+
+    # 1. UI要素の定義 (チーム選択と分析項目選択)
+    all_teams = sorted(df['Team'].unique().tolist())
+    col1, col2 = st.columns(2)
+    with col1:
+        # 選択キーをリーグごとにユニークにする
+        selected_team = st.selectbox('チームを選択', all_teams, key=f'trend_team_{league_name}')
+    with col2:
+        selected_var = st.selectbox('分析したい項目を選択', available_vars, key=f'trend_var_{league_name}')
+    
+    # 2. データ準備
+    team_df = df[df['Team'] == selected_team].sort_values(by='Matchday').reset_index(drop=True)
+
+    if team_df.empty:
+        st.warning(f"{selected_team} のデータが見つかりません。")
+        return
+
+    # 3. 移動平均線の計算
+    # 5節移動平均を計算し、DataFrameに追加
+    window_size = 5
+    trend_col_name = f'{selected_var} (SMA {window_size})'
+    team_df[trend_col_name] = team_df[selected_var].rolling(window=window_size, min_periods=1).mean()
+
+    # 4. Plotly Graph Objectsで折れ線グラフ描画
+    team_color = team_colors.get(selected_team, '#4A2E19')
+    
+    fig = go.Figure()
+
+    # 元データ（節ごとの値）の折れ線
+    fig.add_trace(go.Scatter(
+        x=team_df['Match ID'],
+        y=team_df[selected_var],
+        mode='lines+markers',
+        name='節ごとの値',
+        line=dict(color=team_color, width=2),
+        marker=dict(size=6),
+        # ホバー情報設定
+        hovertemplate=f"<b>節</b>: %{{x}}<br><b>{selected_var}</b>: %{{y:.2f}}<extra> (単発)</extra>"
+    ))
+    
+    # 移動平均線（トレンド）
+    fig.add_trace(go.Scatter(
+        x=team_df['Matchday'],
+        y=team_df[trend_col_name],
+        mode='lines',
+        name=f'{window_size}節移動平均',
+        line=dict(color='gray', width=3, dash='dot'),
+        # ホバー情報設定
+        hovertemplate=f"<b>節</b>: %{{x}}<br><b>{trend_col_name}</b>: %{{y:.2f}}<extra> (トレンド)</extra>"
+    ))
+
+
+    # レイアウト設定
+    fig.update_layout(
+        title=f'**{selected_team}**: {selected_var} のシーズン推移',
+        xaxis_title='節 (Match ID)',
+        yaxis_title=f'{selected_var}',
+        hovermode="x unified", # X軸に沿ってホバー情報を統合
+        height=550,
+    )
+    # X軸の目盛りを整数にする
+    fig.update_xaxes(dtick=1)
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
@@ -335,7 +416,7 @@ if selected == 'J1':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング']) 
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
         
         try:
             team_stats_aggregated = df.groupby('Team').agg(
@@ -379,6 +460,9 @@ if selected == 'J1':
 
         with Custom_tab:
             render_custom_ranking(df, 'J1', TEAM_COLORS, available_vars)
+        
+        with Trend_tab:
+            render_trend_analysis(df, 'J1', TEAM_COLORS, available_vars)
 
 
 # ------------------------------------
@@ -396,7 +480,8 @@ elif selected == 'J2':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング'])
+        # 💡 修正: 新しいタブ 'Trend_tab' を追加
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
         
         try:
             team_stats_aggregated = df.groupby('Team').agg(
@@ -440,6 +525,10 @@ elif selected == 'J2':
         with Custom_tab:
             render_custom_ranking(df, 'J2', TEAM_COLORS, available_vars)
 
+        with Trend_tab:
+            render_trend_analysis(df, 'J2', TEAM_COLORS, available_vars)
+
+
 # ------------------------------------
 # J3 リーグのコンテンツ
 # ------------------------------------
@@ -455,7 +544,8 @@ elif selected == 'J3':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング'])
+        # 💡 修正: 新しいタブ 'Trend_tab' を追加
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
         
         try:
             team_stats_aggregated = df.groupby('Team').agg(
@@ -498,3 +588,6 @@ elif selected == 'J3':
 
         with Custom_tab:
             render_custom_ranking(df, 'J3', TEAM_COLORS, available_vars)
+            
+        with Trend_tab:
+            render_trend_analysis(df, 'J3', TEAM_COLORS, available_vars)
