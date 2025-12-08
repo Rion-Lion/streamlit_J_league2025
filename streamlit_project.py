@@ -317,7 +317,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     st.plotly_chart(fig, use_container_width=True)
 
 
-# 💡 修正: 自チームデータへの対戦相手チーム名結合処理を削除
+# 💡 修正: render_trend_analysis関数内の対戦相手のホバーテンプレートの表示順を変更
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -372,17 +372,13 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_avg_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # 📌 修正点: 自チームデータ (team_match_df) への対戦相手名 (Opponent_Team) の結合は削除。
-            # ホバー情報のカスタムデータにも含めない。
-
-
     # 4. Plotly Graph Objectsで折れ線グラフ描画
     team_color = team_colors.get(selected_team, '#4A2E19')
     opponent_color = '#999999' # 対戦相手はグレー系で統一
 
     fig = go.Figure()
     
-    # --- 自チームのホバーテンプレート ---
+    # --- 自チームのホバーテンプレート (変更なし) ---
     # 自チームのホバーでは、節と値のみを表示 (カスタムデータも不要)
     hovertemplate_self = f"<b>節 %{{x}}</b>: %{{y:.2f}}<extra>自チーム</extra>"
     custom_data_self = None
@@ -398,11 +394,11 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         customdata=custom_data_self
     ))
     
-    # --- 対戦相手のホバーテンプレート ---
+    # --- 対戦相手のホバーテンプレート (表示順を修正) ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
-        # 対戦相手のホバーでは、対戦相手のチーム名を引き続き表示する
+        # 📌 修正点: 相手名が先、値が後になるように順序を入れ替えた
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
-        hovertemplate_opponent = f"<b>節 %{{x}}</b>: %{{y:.2f}}<br><b>対戦相手</b>: %{{customdata[0]}}<extra>対戦相手</extra>"
+        hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
         
         fig.add_trace(go.Scatter(
             x=opponent_match_df['Matchday'],
