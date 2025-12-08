@@ -351,4 +351,250 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         line=dict(color=team_color, width=2),
         marker=dict(size=6),
         # ホバー情報設定
-        hovertemplate=f"<b>節</b>: %{{x}}<br><b>{selected_var}</b>: %{{y:.2f}}
+        hovertemplate=f"<b>節</b>: %{{x}}<br><b>{selected_var}</b>: %{{y:.2f}}<extra></extra>"
+    ))
+    
+    # レイアウト設定
+    fig.update_layout(
+        title=f'**{selected_team}**: {selected_var} のシーズン推移',
+        xaxis_title='節 (Matchday)',
+        yaxis_title=f'{selected_var} (試合平均)',
+        hovermode="x unified", # X軸に沿ってホバー情報を統合
+        height=550,
+    )
+    # X軸の目盛りを整数にする
+    fig.update_xaxes(dtick=1)
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# --- 3. メインロジック ---
+
+# サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
+with st.sidebar:
+    st.subheader("menu")
+    selected = st.selectbox(' ',['HOME','J1','J2','J3'], key='league_selector')
+    
+# サイドバーの外で、選択に基づきデータをロード
+df = pd.DataFrame() 
+if selected in ['J1', 'J2', 'J3']:
+    df = get_data(selected) 
+elif selected == 'HOME':
+    df = get_all_league_data()
+else:
+    df = pd.DataFrame() 
+
+# --- 4. メインコンテンツの描画 ---
+
+if selected == 'HOME':
+    st.title('🇯🇵 J.League Data Dashboard: 全体分析')
+    st.markdown('サイドバーからリーグを選択して、フィジカルデータ分析ダッシュボードをご利用ください。')
+    
+    if df.empty:
+        st.warning("⚠️ J1, J2, J3 のいずれのデータもロードできなかったため、全体分析を表示できません。")
+    else:
+        Scatter_tab, Preview_tab = st.tabs(['散布図分析', 'データプレビュー'])
+
+        with Scatter_tab:
+            render_scatter_plot(df, available_vars, TEAM_COLORS, LEAGUE_COLOR_MAP)
+
+        with Preview_tab:
+            st.subheader("全リーグデータプレビュー")
+            st.dataframe(df.head())
+            st.markdown(f"**ロードされたチーム数:** {df['Team'].nunique()} | **ロードされたデータ行数:** {len(df)}")
+
+
+# ------------------------------------
+# J1 リーグのコンテンツ
+# ------------------------------------
+if selected == 'J1':
+    
+    if df.empty:
+        st.warning("データがロードされていないため、J1スタッツを表示できません。")
+    else:
+        st.header(f"🏆 J1 リーグ分析ダッシュボード")
+        
+        current_teams = df['Team'].unique().tolist()
+        filtered_colors = {team: TEAM_COLORS[team] for team in current_teams if team in TEAM_COLORS}
+        domain_list = list(filtered_colors.keys())
+        range_list = list(filtered_colors.values())
+        
+        # 新しいタブ 'Trend_tab' を含む
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
+        
+        try:
+            team_stats_aggregated = df.groupby('Team').agg(
+                total_distance_m=('Distance', 'sum'),
+                total_sprints=('Sprint Count', 'sum')
+            ).reset_index()
+
+            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
+            
+            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
+            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
+            
+            with Distance_tab:
+                st.markdown("### チーム別 総走行距離ランキング (km)")
+                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_distance_km', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
+                ).properties(height=600)
+                st.altair_chart(chart_distance, use_container_width=True)
+
+            with Sprint_table_tab:
+                st.markdown("### チーム別 総スプリント数ランキング")
+                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_sprints', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_sprints:Q', title='総スプリント数'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', 'total_sprints']
+                ).properties(height=600)
+                st.altair_chart(chart_sprints, use_container_width=True)
+
+        except KeyError as e:
+            st.error(f"J1データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
+        except Exception as e:
+            st.error(f"J1で予期せぬエラーが発生しました: {e}")
+
+        with Custom_tab:
+            render_custom_ranking(df, 'J1', TEAM_COLORS, available_vars)
+        
+        # 新しいタブの処理: シーズン動向分析
+        with Trend_tab:
+            render_trend_analysis(df, 'J1', TEAM_COLORS, available_vars)
+
+
+# ------------------------------------
+# J2 リーグのコンテンツ
+# ------------------------------------
+elif selected == 'J2':
+    
+    if df.empty:
+        st.warning(f"⚠️ {selected} リーグのデータがロードできませんでした。ファイルが存在するか確認してください。")
+    else:
+        st.header(f"🏆 J2 リーグ分析ダッシュボード")
+
+        current_teams = df['Team'].unique().tolist()
+        filtered_colors = {team: TEAM_COLORS[team] for team in current_teams if team in TEAM_COLORS}
+        domain_list = list(filtered_colors.keys())
+        range_list = list(filtered_colors.values())
+        
+        # 新しいタブ 'Trend_tab' を含む
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
+        
+        try:
+            team_stats_aggregated = df.groupby('Team').agg(
+                total_distance_m=('Distance', 'sum'),
+                total_sprints=('Sprint Count', 'sum')
+            ).reset_index()
+
+            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
+            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
+            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
+            
+            with Distance_tab:
+                st.markdown("### チーム別 総走行距離ランキング (km)")
+                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_distance_km', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
+                ).properties(height=600)
+                st.altair_chart(chart_distance, use_container_width=True)
+
+            with Sprint_table_tab:
+                st.markdown("### チーム別 総スプリント数ランキング")
+                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_sprints', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_sprints:Q', title='総スプリント数'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', 'total_sprints']
+                ).properties(height=600)
+                st.altair_chart(chart_sprints, use_container_width=True)
+
+        except KeyError as e:
+            st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
+        except Exception as e:
+            st.error(f"J2で予期せぬエラーが発生しました: {e}")
+
+        with Custom_tab:
+            render_custom_ranking(df, 'J2', TEAM_COLORS, available_vars)
+
+        # 新しいタブの処理: シーズン動向分析
+        with Trend_tab:
+            render_trend_analysis(df, 'J2', TEAM_COLORS, available_vars)
+
+
+# ------------------------------------
+# J3 リーグのコンテンツ
+# ------------------------------------
+elif selected == 'J3':
+    
+    if df.empty:
+        st.warning(f"⚠️ {selected} リーグのデータがロードできませんでした。ファイルが存在するか確認してください。")
+    else:
+        st.header(f"🏆 J3 リーグ分析ダッシュボード")
+        
+        current_teams = df['Team'].unique().tolist()
+        filtered_colors = {team: TEAM_COLORS[team] for team in current_teams if team in TEAM_COLORS}
+        domain_list = list(filtered_colors.keys())
+        range_list = list(filtered_colors.values())
+        
+        # 新しいタブ 'Trend_tab' を含む
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
+        
+        try:
+            team_stats_aggregated = df.groupby('Team').agg(
+                total_distance_m=('Distance', 'sum'),
+                total_sprints=('Sprint Count', 'sum')
+            ).reset_index()
+
+            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
+            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
+            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
+            
+            with Distance_tab:
+                st.markdown("### チーム別 総走行距離ランキング (km)")
+                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_distance_km', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
+                ).properties(height=600)
+                st.altair_chart(chart_distance, use_container_width=True)
+
+            with Sprint_table_tab:
+                st.markdown("### チーム別 総スプリント数ランキング")
+                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
+                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                        field='total_sprints', op='sum', order='descending'
+                    ), title='チーム'),
+                    x=alt.X('total_sprints:Q', title='総スプリント数'),
+                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                    tooltip=['Team', 'total_sprints']
+                ).properties(height=600)
+                st.altair_chart(chart_sprints, use_container_width=True)
+
+        except KeyError as e:
+            st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
+        except Exception as e:
+            st.error(f"J3で予期せぬエラーが発生しました: {e}")
+
+        with Custom_tab:
+            render_custom_ranking(df, 'J3', TEAM_COLORS, available_vars)
+            
+        # 新しいタブの処理: シーズン動向分析
+        with Trend_tab:
+            render_trend_analysis(df, 'J3', TEAM_COLORS, available_vars)
