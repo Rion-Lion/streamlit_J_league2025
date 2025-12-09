@@ -308,21 +308,26 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
         )
 
     # レイアウトの調整
+    # Y軸のタイトルはここで設定
     fig.update_layout(
-        xaxis_title=f'{x_var} (平均)',
-        yaxis_title=f'{y_var} (平均)',
-        hovermode="closest",)
+        title_text=f'チーム別平均値: {y_var} vs {x_var}', # タイトルを再設定
+        hovermode="closest",
+    )
+    
+    # 📌 X軸の範囲を0から38に固定
     fig.update_xaxes(
-        range=[0, 38],  # X軸の範囲を0から38に設定
-        title=f'{x_var} (平均)',)
+        range=[0, 38],  # X軸の範囲を0から38に固定
+        title=f'{x_var} (平均)',
+    )
     # Y軸のタイトルも更新
     fig.update_yaxes(
-        title=f'{y_var} (平均)',)
+        title=f'{y_var} (平均)',
+    )
     
     st.plotly_chart(fig, use_container_width=True)
 
 
-# 💡 修正: render_trend_analysis関数内の対戦相手データ集計処理をMatchdayで一意になるように保証
+# シーズン動向分析関数 (変更なし)
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -363,8 +368,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         opponent_data = df[df['Match ID'].isin(match_ids) & (df['Team'] != selected_team)].copy()
         
         if not opponent_data.empty:
-            # MatchdayとMatch IDの対応表を作成 (Matchday -> Match ID -> 1:1を保証)
-            # 自チームのデータからMatch IDとMatchdayの対応を取得することで、この対応は一意であると仮定
+            # MatchdayとMatch IDの対応表を作成 (自チームデータから一意の対応を取得)
             matchday_map = team_match_df[['Matchday', 'Match ID']].drop_duplicates()
             
             # 対戦相手のMatch IDごとの平均値を計算 (Match IDごとに1行に集約)
@@ -378,9 +382,13 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_match_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # 📌 念のためMatchdayとMatch IDをキーに重複を確認し、ソート
-            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(subset=['Matchday', 'Match ID'], keep='first')
-
+            # 最終確認と厳密な重複排除：MatchdayとMatch ID、Team（対戦相手名）の組み合わせで一意になるようにする
+            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(
+                subset=['Matchday', 'Match ID', 'Team'], 
+                keep='first'
+            )
+            # Matchdayを基準にソート (グラフ表示順序のため)
+            opponent_match_df = opponent_match_df.sort_values(by='Matchday')
 
     # 4. Plotly Graph Objectsで折れ線グラフ描画
     team_color = team_colors.get(selected_team, '#4A2E19')
@@ -405,9 +413,6 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     
     # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
-        # Matchdayの昇順にソート（グラフ表示順序のため）
-        opponent_match_df = opponent_match_df.sort_values(by='Matchday')
-
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
         hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
@@ -470,6 +475,7 @@ if selected == 'HOME':
         Scatter_tab, Preview_tab = st.tabs(['散布図分析', 'データプレビュー'])
 
         with Scatter_tab:
+            # 散布図描画関数の呼び出し
             render_scatter_plot(df, available_vars, TEAM_COLORS, LEAGUE_COLOR_MAP)
 
         with Preview_tab:
