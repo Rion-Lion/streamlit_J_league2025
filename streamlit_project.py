@@ -19,22 +19,20 @@ st.subheader('All data by SkillCorner')
 LEAGUE_FILE_MAP = {
     'J1': '2025_J1_physical_data.csv',
     'J2': '2025_J2_physical_data.csv',
-    'J3': '2025_J3_physical_data.csv',
-}
+    'J3': '2025_J3_physical_data.csv',}
 
 # リーグごとの指定色 (HOME画面の散布図用)
 LEAGUE_COLOR_MAP = {
     'J1': '#E6002D', # 赤
     'J2': '#127A3A', # 緑
-    'J3': '#014099', # 青
-}
+    'J3': '#014099', # 青}
 
 @st.cache_data(ttl=60*15)
 def get_data(league_key):
     file_name = LEAGUE_FILE_MAP.get(league_key, LEAGUE_FILE_MAP['J1'])
     file_path = f"data/{file_name}"
     try:
-        # ローディングインジケータを表示 (Streamlit Cloudで役立つ)
+        # ローディングインジケータを表示
         with st.spinner(f'{league_key}データをロード中...'):
             df = pd.read_csv(file_path)
             # リーグ情報を追加
@@ -277,7 +275,6 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             focal_team: team_colors.get(focal_team, '#FF0000'), 
             'その他': '#CCCCCC' 
         }
-
         fig = px.scatter(
             team_avg_df, 
             x=x_var, 
@@ -287,8 +284,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             # hover_dataにはHighlightを含めず、代わりにTeamを含めることで、Highlightの内容は表示されなくなる。
             hover_data=['Team', 'League', x_var, y_var], 
             title=f'チーム別平均値: {y_var} vs {x_var} (注目チーム: {focal_team})',
-            height=600,
-        )
+            height=600,)
         # 注目チームのマーカーを大きくする
         fig.update_traces(marker=dict(size=12), selector=dict(name=focal_team))
         fig.update_traces(marker=dict(size=8), selector=dict(name='その他'))
@@ -304,19 +300,15 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
             color_discrete_map=all_team_colors,
             hover_data=hover_data_list,
             title=f'チーム別平均値: {y_var} vs {x_var} (チーム別)',
-            height=600,
-        )
+            height=600,)
 
     # レイアウトの調整
-    # Y軸のタイトルはここで設定
     fig.update_layout(
-        title_text=f'チーム別平均値: {y_var} vs {x_var}', # タイトルを再設定
-        hovermode="closest",
-    )
+        xaxis_title=f'{x_var} (平均)',
+        yaxis_title=f'{y_var} (平均)',
+        hovermode="closest",)
     st.plotly_chart(fig, use_container_width=True)
 
-
-# シーズン動向分析関数 (変更なし)
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -397,8 +389,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         line=dict(color=team_color, width=2),
         marker=dict(size=6),
         hovertemplate=hovertemplate_self,
-        customdata=custom_data_self
-    ))
+        customdata=custom_data_self))
     
     # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
@@ -414,10 +405,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             line=dict(color=opponent_color, width=2, dash='dot'),
             marker=dict(size=6, symbol='x'),
             hovertemplate=hovertemplate_opponent,
-            customdata=custom_data_opponent
-        ))
-    
-
+            customdata=custom_data_opponent))
     # レイアウト設定
     title_text = f'**{selected_team}**: {selected_var} のシーズン推移'
     if show_opponent:
@@ -429,15 +417,13 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
-    )
+        # 📌 X軸の範囲を [0, 38] に固定
+        xaxis=dict(range=[0, 38]) )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
-    
     st.plotly_chart(fig, use_container_width=True)
-
-
+    
 # --- 3. メインロジック ---
-
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
 with st.sidebar:
     st.subheader("menu")
@@ -451,9 +437,7 @@ elif selected == 'HOME':
     df = get_all_league_data()
 else:
     df = pd.DataFrame() 
-
 # --- 4. メインコンテンツの描画 ---
-
 if selected == 'HOME':
     st.title('🇯🇵 J.League Data Dashboard: 全体分析')
     st.markdown('サイドバーからリーグを選択して、フィジカルデータ分析ダッシュボードをご利用ください。')
@@ -464,15 +448,12 @@ if selected == 'HOME':
         Scatter_tab, Preview_tab = st.tabs(['散布図分析', 'データプレビュー'])
 
         with Scatter_tab:
-            # 散布図描画関数の呼び出し
             render_scatter_plot(df, available_vars, TEAM_COLORS, LEAGUE_COLOR_MAP)
 
         with Preview_tab:
             st.subheader("全リーグデータプレビュー")
             st.dataframe(df.head())
             st.markdown(f"**ロードされたチーム数:** {df['Team'].nunique()} | **ロードされたデータ行数:** {len(df)}")
-
-
 # ------------------------------------
 # J1 リーグのコンテンツ
 # ------------------------------------
@@ -536,8 +517,6 @@ if selected == 'J1':
         # シーズン動向分析
         with Trend_tab:
             render_trend_analysis(df, 'J1', TEAM_COLORS, available_vars)
-
-
 # ------------------------------------
 # J2 リーグのコンテンツ
 # ------------------------------------
@@ -593,15 +572,11 @@ elif selected == 'J2':
             st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
         except Exception as e:
             st.error(f"J2で予期せぬエラーが発生しました: {e}")
-
         with Custom_tab:
             render_custom_ranking(df, 'J2', TEAM_COLORS, available_vars)
-
         # シーズン動向分析
         with Trend_tab:
             render_trend_analysis(df, 'J2', TEAM_COLORS, available_vars)
-
-
 # ------------------------------------
 # J3 リーグのコンテンツ
 # ------------------------------------
@@ -657,10 +632,8 @@ elif selected == 'J3':
             st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
         except Exception as e:
             st.error(f"J3で予期せぬエラーが発生しました: {e}")
-
         with Custom_tab:
-            render_custom_ranking(df, 'J3', TEAM_COLORS, available_vars)
-            
+            render_custom_ranking(df, 'J3', TEAM_COLORS, available_vars)    
         # シーズン動向分析
         with Trend_tab:
             render_trend_analysis(df, 'J3', TEAM_COLORS, available_vars)
