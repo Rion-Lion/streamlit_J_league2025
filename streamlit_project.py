@@ -313,17 +313,6 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
         title_text=f'チーム別平均値: {y_var} vs {x_var}', # タイトルを再設定
         hovermode="closest",
     )
-    
-    # 📌 X軸の範囲を0から38に固定
-    fig.update_xaxes(
-        range=[0, 38],  # X軸の範囲を0から38に固定
-        title=f'{x_var} (平均)',
-    )
-    # Y軸のタイトルも更新
-    fig.update_yaxes(
-        title=f'{y_var} (平均)',
-    )
-    
     st.plotly_chart(fig, use_container_width=True)
 
 
