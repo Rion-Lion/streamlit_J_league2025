@@ -36,12 +36,7 @@ def get_data(league_key):
     try:
         # ローディングインジケータを表示 (Streamlit Cloudで役立つ)
         with st.spinner(f'{league_key}データをロード中...'):
-            # ファイルアップロードから取得するため、一時的にread_csvをコメントアウト
-            # df = pd.read_csv(file_path)
-            # 暫定的に空のデータフレームで続行
-            # 実際にはここでファイルのロードが必要です。
-            # 今回のシナリオでは、ユーザーがファイルをアップロードしている前提なので、
-            # この部分はダッシュボードとして動作することを優先します。
+
             df = pd.read_csv(file_path) # 既存の仮パスを使用
             
             # リーグ情報を追加
@@ -68,8 +63,6 @@ def get_data(league_key):
                 # 'Matchday' が NaN になる行がある可能性（データの欠損/不整合）を考慮し、NaNは削除/無視
                 df = df.dropna(subset=['Matchday'])
                 df['Matchday'] = df['Matchday'].astype(int)
-
-                st.info(f"✅ {league_key}データで 'Match ID' と 'Match Date' を使用して節 ('Matchday') を正しく生成しました。")
                 
             # フォールバックロジック (Match Date/Match IDがない場合)
             elif 'Matchday' not in df.columns:
