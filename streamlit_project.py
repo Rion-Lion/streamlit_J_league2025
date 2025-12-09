@@ -394,7 +394,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     fig = go.Figure()
     
     # --- 自チームのホバーテンプレート ---
-    hovertemplate_self = f": %{{y:.2f}}<extra>自チーム</extra>"
+    hovertemplate_self = f" %{{y:.2f}}<extra>自チーム</extra>"
     custom_data_self = None
     
     fig.add_trace(go.Scatter(
