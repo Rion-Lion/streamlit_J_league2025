@@ -27,7 +27,7 @@ LEAGUE_COLOR_MAP = {
     'J1': '#E6002D', # 赤
     'J2': '#127A3A', # 緑
     'J3': '#014099', # 青
-} # 👈 修正: 辞書定義がここで終了
+} 
 
 @st.cache_data(ttl=60*15)
 def get_data(league_key):
@@ -325,8 +325,6 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     
     st.plotly_chart(fig, use_container_width=True)
 
-
-# 📌 修正済み: render_trend_analysis関数内のX軸範囲を[0, 38]に固定
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -414,7 +412,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
-        hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
+        hovertemplate_opponent = f": %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
         
         fig.add_trace(go.Scatter(
             x=opponent_match_df['Matchday'],
@@ -439,8 +437,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
-        # X軸の範囲を [0, 38] に固定
-        xaxis=dict(range=[0, 38]) 
+        # X軸の範囲
+        xaxis=dict(range=[0, 39]) 
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
