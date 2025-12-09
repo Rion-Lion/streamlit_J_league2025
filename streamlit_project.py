@@ -394,7 +394,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     fig = go.Figure()
     
     # --- 自チームのホバーテンプレート ---
-    hovertemplate_self = f"<b>節 %{{x}}</b>: %{{y:.2f}}<extra>自チーム</extra>"
+    hovertemplate_self = f": %{{y:.2f}}<extra>自チーム</extra>"
     custom_data_self = None
     
     fig.add_trace(go.Scatter(
@@ -412,7 +412,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
-        hovertemplate_opponent = f"%{{customdata[0]}}<br> %{{y:.2f}}<extra>対戦相手</extra>"
+        hovertemplate_opponent = f"%{{customdata[0]}}<br>: %{{y:.2f}}<extra>対戦相手</extra>"
         
         fig.add_trace(go.Scatter(
             x=opponent_match_df['Matchday'],
