@@ -10,10 +10,22 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
+from io import BytesIO # ★ 追加: Excel出力のために必要
 
 # --- 0. グローバル設定 ---
 st.set_page_config(layout="wide")
 st.subheader('All data by SkillCorner')
+
+# --- Excel出力用の関数 ---
+def to_excel(df: pd.DataFrame):
+    """データフレームをExcelバイトストリームに変換する"""
+    output = BytesIO()
+    # xlsxwriterをエンジンとして使用
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Ranking Data')
+    processed_data = output.getvalue()
+    return processed_data
+# --- Excel出力用の関数 終了 ---
 
 # --- 1. データと変数定義 (グローバルスコープ) ---
 LEAGUE_FILE_MAP = {
@@ -314,7 +326,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     st.plotly_chart(fig, use_container_width=True)
 
 
-# 💡 修正: render_trend_analysis関数内の対戦相手データ集計処理をMatchdayで一意になるように保証
+# render_trend_analysis関数
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -332,7 +344,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         selected_var = st.selectbox('分析したい項目を選択', available_vars, key=f'trend_var_{league_name}')
     
     # 条件ボタンの追加
-    show_opponent = st.checkbox('対戦相手のデータも表示する', key=f'show_opponent_{league_name}')
+    show_opponent = st.checkbox('対戦相手のデータも表示する', key=f'show_opponent_{league_name}') 
 
     # 2. 自チームデータ準備
     team_data = df[df['Team'] == selected_team].copy()
@@ -356,7 +368,6 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         
         if not opponent_data.empty:
             # MatchdayとMatch IDの対応表を作成 (Matchday -> Match ID -> 1:1を保証)
-            # 自チームのデータからMatch IDとMatchdayの対応を取得することで、この対応は一意であると仮定
             matchday_map = team_match_df[['Matchday', 'Match ID']].drop_duplicates()
             
             # 対戦相手のMatch IDごとの平均値を計算 (Match IDごとに1行に集約)
@@ -370,8 +381,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_match_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # 📌 念のためMatchdayとMatch IDをキーに重複を確認し、ソート
+            # 念のためMatchdayとMatch IDをキーに重複を確認し、ソート
             opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(subset=['Matchday', 'Match ID'], keep='first')
+            opponent_match_df = opponent_match_df.sort_values(by='Matchday')
 
 
     # 4. Plotly Graph Objectsで折れ線グラフ描画
@@ -397,12 +409,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     
     # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
-        # Matchdayの昇順にソート（グラフ表示順序のため）
-        opponent_match_df = opponent_match_df.sort_values(by='Matchday')
-
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
-        hovertemplate_opponent = f" %{{customdata[0]}}<br> : %{{y:.2f}}<extra>対戦相手</extra>"
+        hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
         
         fig.add_trace(go.Scatter(
             x=opponent_match_df['Matchday'],
@@ -432,8 +441,10 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
-    st.plotly_chart(fig, use_container_width=True)
     
+    st.plotly_chart(fig, use_container_width=True)
+
+
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
@@ -485,7 +496,7 @@ if selected == 'J1':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
         
         try:
             team_stats_aggregated = df.groupby('Team').agg(
@@ -510,6 +521,15 @@ if selected == 'J1':
                 ).properties(height=600)
                 st.altair_chart(chart_distance, use_container_width=True)
 
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_distance_reset),
+                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+
+
             with Sprint_table_tab:
                 st.markdown("### チーム別 総スプリント数ランキング")
                 chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
@@ -521,6 +541,14 @@ if selected == 'J1':
                     tooltip=['Team', 'total_sprints']
                 ).properties(height=600)
                 st.altair_chart(chart_sprints, use_container_width=True)
+
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_sprints_reset),
+                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
 
         except KeyError as e:
             st.error(f"J1データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -574,6 +602,14 @@ elif selected == 'J2':
                 ).properties(height=600)
                 st.altair_chart(chart_distance, use_container_width=True)
 
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_distance_reset),
+                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+
             with Sprint_table_tab:
                 st.markdown("### チーム別 総スプリント数ランキング")
                 chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
@@ -585,6 +621,14 @@ elif selected == 'J2':
                     tooltip=['Team', 'total_sprints']
                 ).properties(height=600)
                 st.altair_chart(chart_sprints, use_container_width=True)
+
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_sprints_reset),
+                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
 
         except KeyError as e:
             st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -638,6 +682,14 @@ elif selected == 'J3':
                 ).properties(height=600)
                 st.altair_chart(chart_distance, use_container_width=True)
 
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_distance_reset),
+                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
+
             with Sprint_table_tab:
                 st.markdown("### チーム別 総スプリント数ランキング")
                 chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
@@ -649,6 +701,14 @@ elif selected == 'J3':
                     tooltip=['Team', 'total_sprints']
                 ).properties(height=600)
                 st.altair_chart(chart_sprints, use_container_width=True)
+
+                # ★ Excelダウンロードボタン
+                st.download_button(
+                    label="ランキングデータをExcelでダウンロード",
+                    data=to_excel(sorted_sprints_reset),
+                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                )
 
         except KeyError as e:
             st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
