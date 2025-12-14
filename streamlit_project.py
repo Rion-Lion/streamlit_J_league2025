@@ -77,7 +77,7 @@ def get_data(league_key):
             elif 'Matchday' not in df.columns:
                  df['Matchday'] = df.groupby('Team').cumcount() + 1
                  st.warning(f"⚠️ {league_key}データに正確な時系列情報がなく、節 ('Matchday') の生成が不正確になる可能性があります。")
-                 
+                
             return df
     except Exception as e:
         st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。ファイルが存在するか確認してください。")
@@ -433,7 +433,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     # レイアウト設定
     title_text = f'**{selected_team}**: {selected_var} のシーズン推移'
     if show_opponent:
-         title_text += ' (対戦相手比較)'
+          title_text += ' (対戦相手比較)'
 
     fig.update_layout(
         title=title_text,
@@ -533,6 +533,8 @@ if selected == 'J1':
                 actual_var = selected_ranking_var.replace(' (km)', '')
 
                 # データ集計（選択された方法に応じて切り替え）
+                team_stats_aggregated = pd.DataFrame() # 初期化
+                
                 if actual_var in df.columns:
                     if ranking_method == 'Total':
                         team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
@@ -544,7 +546,7 @@ if selected == 'J1':
                         team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
                     else:
                         st.error("無効な集計方法が選択されました。")
-                        return
+                        st.stop() # 修正: return -> st.stop()
 
                     # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
@@ -586,6 +588,8 @@ if selected == 'J1':
                     )
                 else:
                      st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                     st.stop() # 修正: エラー後の処理を中断
+                     
 
         except KeyError as e:
             st.error(f"J1データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -646,6 +650,8 @@ elif selected == 'J2':
                 actual_var = selected_ranking_var.replace(' (km)', '')
 
                 # データ集計（選択された方法に応じて切り替え）
+                team_stats_aggregated = pd.DataFrame() # 初期化
+                
                 if actual_var in df.columns:
                     if ranking_method == 'Total':
                         team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
@@ -657,7 +663,7 @@ elif selected == 'J2':
                         team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
                     else:
                         st.error("無効な集計方法が選択されました。")
-                        return
+                        st.stop() # 修正: return -> st.stop()
 
                     # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
@@ -695,6 +701,7 @@ elif selected == 'J2':
                     )
                 else:
                      st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                     st.stop() # 修正: エラー後の処理を中断
 
         except KeyError as e:
             st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -754,6 +761,8 @@ elif selected == 'J3':
                 actual_var = selected_ranking_var.replace(' (km)', '')
                 
                 # データ集計（選択された方法に応じて切り替え）
+                team_stats_aggregated = pd.DataFrame() # 初期化
+                
                 if actual_var in df.columns:
                     if ranking_method == 'Total':
                         team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
@@ -765,7 +774,7 @@ elif selected == 'J3':
                         team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
                     else:
                         st.error("無効な集計方法が選択されました。")
-                        return
+                        st.stop() # 修正: return -> st.stop()
 
                     # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
@@ -803,6 +812,8 @@ elif selected == 'J3':
                     )
                 else:
                      st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                     st.stop() # 修正: エラー後の処理を中断
+
 
         except KeyError as e:
             st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -811,7 +822,7 @@ elif selected == 'J3':
 
         with Custom_tab:
             render_custom_ranking(df, 'J3', TEAM_COLORS, available_vars)
-            
+
         # シーズン動向分析
         with Trend_tab:
             render_trend_analysis(df, 'J3', TEAM_COLORS, available_vars)
