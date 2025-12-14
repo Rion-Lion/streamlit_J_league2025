@@ -10,7 +10,7 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
-from io import BytesIO 
+from io import BytesIO
 
 # --- 0. グローバル設定 ---
 st.set_page_config(layout="wide")
@@ -29,13 +29,12 @@ LEAGUE_COLOR_MAP = {
     'J2': '#127A3A', # 緑
     'J3': '#014099', # 青
 }
-
 @st.cache_data(ttl=60*15)
 def get_data(league_key):
     file_name = LEAGUE_FILE_MAP.get(league_key, LEAGUE_FILE_MAP['J1'])
     file_path = f"data/{file_name}"
     try:
-        # ローディングインジケータを表示
+        # ローディングインジケータを表示 (Streamlit Cloudで役立つ)
         with st.spinner(f'{league_key}データをロード中...'):
             df = pd.read_csv(file_path)
             # リーグ情報を追加
@@ -62,8 +61,6 @@ def get_data(league_key):
                 # 'Matchday' が NaN になる行がある可能性（データの欠損/不整合）を考慮し、NaNは削除/無視
                 df = df.dropna(subset=['Matchday'])
                 df['Matchday'] = df['Matchday'].astype(int)
-
-                st.info(f"✅ {league_key}データで 'Match ID' と 'Match Date' を使用して節 ('Matchday') を正しく生成しました。")
                 
             # フォールバックロジック (Match Date/Match IDがない場合)
             elif 'Matchday' not in df.columns:
@@ -72,7 +69,7 @@ def get_data(league_key):
                  
             return df
     except Exception as e:
-        st.error(f"データロードエラー: {e}")
+        st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。ファイルが存在するか確認してください。")
         return pd.DataFrame()
 
 # 全リーグデータを結合する関数 (HOME画面用)
@@ -104,7 +101,7 @@ def convert_df_to_xlsx(df):
     processed_data = output.getvalue()
     return processed_data
 
-# 📌 チームカラー定義
+# 📌 チームカラー定義 (グローバルに配置)
 TEAM_COLORS = {
     #J1 Teams
     'Kashima Antlers': '#B71940','Kashiwa Reysol':"#FFF000",'Urawa Red Diamonds': '#E6002D',
@@ -126,7 +123,7 @@ TEAM_COLORS = {
     'Giravanz Kitakyushu':"#E8BD00",'Tegevajaro Miyazaki FC':"#F6E066",'Kagoshima United FC':"#19315F",'FC Ryūkyū':"#AA131B",
 }
 
-available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','HI Distance','HI Count',
+available_vars = ['Distance','Running Distance','M/min','HSR Distance','Sprint Count','HI Distance','HI Count',
                   'Distance TIP','Running Distance TIP','HSR Distance TIP','HSR Count TIP',
                   'Sprint Distance TIP','Sprint Count TIP','Distance OTIP','Running Distance OTIP','HSR Distance OTIP','HSR Count OTIP',
                   'Sprint Distance OTIP','Sprint Count OTIP'] # TIP/OTIP指標を追加
@@ -332,7 +329,7 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     st.plotly_chart(fig, use_container_width=True)
 
 
-# 📌 render_trend_analysis関数内のX軸範囲は[0, 38]に固定済み
+# 💡 修正: render_trend_analysis関数内の対戦相手データ集計処理をMatchdayで一意になるように保証
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -373,7 +370,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         opponent_data = df[df['Match ID'].isin(match_ids) & (df['Team'] != selected_team)].copy()
         
         if not opponent_data.empty:
-            # MatchdayとMatch IDの対応表を作成 (自チームデータから一意の対応を取得)
+            # MatchdayとMatch IDの対応表を作成 (Matchday -> Match ID -> 1:1を保証)
+            # 自チームのデータからMatch IDとMatchdayの対応を取得することで、この対応は一意であると仮定
             matchday_map = team_match_df[['Matchday', 'Match ID']].drop_duplicates()
             
             # 対戦相手のMatch IDごとの平均値を計算 (Match IDごとに1行に集約)
@@ -387,13 +385,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_match_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # 最終確認と厳密な重複排除：MatchdayとMatch ID、Team（対戦相手名）の組み合わせで一意になるようにする
-            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(
-                subset=['Matchday', 'Match ID', 'Team'], 
-                keep='first'
-            )
-            # Matchdayを基準にソート (グラフ表示順序のため)
-            opponent_match_df = opponent_match_df.sort_values(by='Matchday')
+            # 📌 念のためMatchdayとMatch IDをキーに重複を確認し、ソート
+            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(subset=['Matchday', 'Match ID'], keep='first')
+
 
     # 4. Plotly Graph Objectsで折れ線グラフ描画
     team_color = team_colors.get(selected_team, '#4A2E19')
@@ -418,6 +412,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     
     # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
+        # Matchdayの昇順にソート（グラフ表示順序のため）
+        opponent_match_df = opponent_match_df.sort_values(by='Matchday')
+
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
         hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
@@ -445,8 +442,6 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
-        # X軸の範囲を [0, 38] に固定
-        xaxis=dict(range=[0, 38]) 
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
@@ -479,22 +474,7 @@ if selected == 'HOME':
     if df.empty:
         st.warning("⚠️ J1, J2, J3 のいずれのデータもロードできなかったため、全体分析を表示できません。")
     else:
-        # 📌 修正: HOME画面にダウンロードタブを追加
-        Download_tab, Scatter_tab, Preview_tab = st.tabs(['💾 全データダウンロード', '散布図分析', 'データプレビュー'])
-
-        with Download_tab:
-            st.markdown("### 📥 J.League 全リーグ結合データダウンロード")
-            if not df.empty:
-                xlsx_data = convert_df_to_xlsx(df) # df は get_all_league_data() で結合済み
-                st.download_button(
-                    label="全Jリーグデータ (Excel .xlsx) をダウンロード",
-                    data=xlsx_data,
-                    file_name="2025_JLeague_All_physical_data.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                st.caption("このボタンでJ1, J2, J3を結合した全データセットをダウンロードできます。")
-            else:
-                st.warning("ダウンロードするデータが見つかりません。ファイルをロードしてからHOME画面を開いてください。")
+        Scatter_tab, Preview_tab = st.tabs(['散布図分析', 'データプレビュー'])
 
         with Scatter_tab:
             render_scatter_plot(df, available_vars, TEAM_COLORS, LEAGUE_COLOR_MAP)
@@ -506,7 +486,7 @@ if selected == 'HOME':
 
 
 # ------------------------------------
-# J1 リーグのコンテンツ (リーグ単独のダウンロードは維持)
+# J1 リーグのコンテンツ
 # ------------------------------------
 if selected == 'J1':
     
@@ -520,20 +500,8 @@ if selected == 'J1':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # 📌 J1リーグ単独のダウンロードタブ
-        Download_tab, Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['💾 データダウンロード', '総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
         
-        with Download_tab:
-            st.markdown("### 📥 J1リーグ 全データダウンロード")
-            xlsx_data = convert_df_to_xlsx(df)
-            st.download_button(
-                label="J1データ (Excel .xlsx) をダウンロード",
-                data=xlsx_data,
-                file_name="2025_J1_physical_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.caption("このボタンで現在表示されているJ1リーグの全データセットをダウンロードできます。")
-
         try:
             team_stats_aggregated = df.groupby('Team').agg(
                 total_distance_m=('Distance', 'sum'),
@@ -597,20 +565,8 @@ elif selected == 'J2':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # 📌 J2リーグ単独のダウンロードタブ
-        Download_tab, Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['💾 データダウンロード', '総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析']) 
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
         
-        with Download_tab:
-            st.markdown("### 📥 J2リーグ 全データダウンロード")
-            xlsx_data = convert_df_to_xlsx(df)
-            st.download_button(
-                label="J2データ (Excel .xlsx) をダウンロード",
-                data=xlsx_data,
-                file_name="2025_J2_physical_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.caption("このボタンで現在表示されているJ2リーグの全データセットをダウンロードできます。")
-
         try:
             team_stats_aggregated = df.groupby('Team').agg(
                 total_distance_m=('Distance', 'sum'),
@@ -673,19 +629,7 @@ elif selected == 'J3':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # 📌 J3リーグ単独のダウンロードタブ
-        Download_tab, Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['💾 データダウンロード', '総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
-        
-        with Download_tab:
-            st.markdown("### 📥 J3リーグ 全データダウンロード")
-            xlsx_data = convert_df_to_xlsx(df)
-            st.download_button(
-                label="J3データ (Excel .xlsx) をダウンロード",
-                data=xlsx_data,
-                file_name="2025_J3_physical_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.caption("このボタンで現在表示されているJ3リーグの全データセットをダウンロードできます。")
+        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
         
         try:
             team_stats_aggregated = df.groupby('Team').agg(
@@ -732,4 +676,3 @@ elif selected == 'J3':
         # シーズン動向分析
         with Trend_tab:
             render_trend_analysis(df, 'J3', TEAM_COLORS, available_vars)
-        
