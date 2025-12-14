@@ -10,7 +10,7 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
-from io import BytesIO # ★ 追加: Excel出力のために必要
+from io import BytesIO
 
 # --- 0. グローバル設定 ---
 st.set_page_config(layout="wide")
@@ -198,7 +198,11 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
             if column == 'Team':
                 text_label = f'{rank}     {team_name}' if rank < 10 else f'{rank}   {team_name}'
             else:
-                text_label = f'{round(indexdf_short[column].iloc[i],2)}'
+                # Distanceをkmに変換して表示
+                if column == 'Distance' and rank_method == 'Total':
+                    text_label = f'{round(indexdf_short[column].iloc[i] / 1000, 2)} km'
+                else:
+                    text_label = f'{round(indexdf_short[column].iloc[i],2)}'
             
             ax.annotate(
                 xy=(positions[j], i + .5),
@@ -443,8 +447,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     fig.update_xaxes(dtick=1)
     
     st.plotly_chart(fig, use_container_width=True)
-
-
+    
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
@@ -496,59 +499,79 @@ if selected == 'J1':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
+        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
+        Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            team_stats_aggregated = df.groupby('Team').agg(
-                total_distance_m=('Distance', 'sum'),
-                total_sprints=('Sprint Count', 'sum')
-            ).reset_index()
+            # チーム別の総計を計算 (すべてのavailable_varsを計算)
+            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
 
-            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
-            
-            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
-            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
-            
-            with Distance_tab:
-                st.markdown("### チーム別 総走行距離ランキング (km)")
-                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_distance_km', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
-                ).properties(height=600)
-                st.altair_chart(chart_distance, use_container_width=True)
+            # Distanceをkmに変換した列を追加
+            if 'Distance' in team_stats_aggregated.columns:
+                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
+                # available_varsにも'Distance (km)'を追加（表示用）
+                if 'Distance (km)' not in available_vars:
+                     # グラフ表示用に一時的に追加。元のavailable_varsは変更しない
+                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
+                else:
+                    display_vars = available_vars
+            else:
+                display_vars = available_vars
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_distance_reset),
-                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            with Aggregate_Ranking_tab:
+                
+                st.markdown("### 📊 チーム別 総計ランキング")
+                
+                # ★ セレクトボックスの追加
+                # 'Distance'が元のavailable_varsにある場合、'Distance (km)'をリストに追加して選択肢とする
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
+                
+                selected_ranking_var = st.selectbox(
+                    '表示する指標を選択', 
+                    options=ranking_options, 
+                    index=0, 
+                    key='J1_ranking_var'
                 )
 
+                # 実際に集計に使用する列名 (kmをmに戻す)
+                actual_var = selected_ranking_var.replace(' (km)', '')
 
-            with Sprint_table_tab:
-                st.markdown("### チーム別 総スプリント数ランキング")
-                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_sprints', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_sprints:Q', title='総スプリント数'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', 'total_sprints']
-                ).properties(height=600)
-                st.altair_chart(chart_sprints, use_container_width=True)
+                if actual_var not in team_stats_aggregated.columns:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                else:
+                    # グラフ描画用データフレームを準備
+                    plot_data = team_stats_aggregated.copy()
+                    
+                    # 選択された指標がDistanceで、表示がkmの場合の調整
+                    if selected_ranking_var == 'Distance (km)':
+                        var_to_rank = 'Distance (km)'
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = '.1f'
+                    else:
+                        var_to_rank = actual_var
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = ',.0f'
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_sprints_reset),
-                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                )
+                    # Altair グラフ描画
+                    chart = alt.Chart(plot_data).mark_bar().encode(
+                        y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                            field=var_to_rank, op='sum', order='descending'
+                        ), title='チーム'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                        tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
+                    ).properties(height=600)
+                    st.altair_chart(chart, use_container_width=True)
+
+                    # Excelダウンロードボタン (描画に使ったデータフレームを使用)
+                    download_df = plot_data[['Team', var_to_rank]]
+                    st.download_button(
+                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        data=to_excel(download_df),
+                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    )
+
 
         except KeyError as e:
             st.error(f"J1データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -578,57 +601,72 @@ elif selected == 'J2':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
+        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
+        Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            team_stats_aggregated = df.groupby('Team').agg(
-                total_distance_m=('Distance', 'sum'),
-                total_sprints=('Sprint Count', 'sum')
-            ).reset_index()
+            # チーム別の総計を計算 (すべてのavailable_varsを計算)
+            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
 
-            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
-            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
-            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
-            
-            with Distance_tab:
-                st.markdown("### チーム別 総走行距離ランキング (km)")
-                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_distance_km', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
-                ).properties(height=600)
-                st.altair_chart(chart_distance, use_container_width=True)
+            # Distanceをkmに変換した列を追加
+            if 'Distance' in team_stats_aggregated.columns:
+                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
+                if 'Distance (km)' not in available_vars:
+                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
+                else:
+                    display_vars = available_vars
+            else:
+                display_vars = available_vars
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_distance_reset),
-                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            with Aggregate_Ranking_tab:
+                
+                st.markdown("### 📊 チーム別 総計ランキング")
+                
+                # ★ セレクトボックスの追加
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
+
+                selected_ranking_var = st.selectbox(
+                    '表示する指標を選択', 
+                    options=ranking_options, 
+                    index=0, 
+                    key='J2_ranking_var'
                 )
 
-            with Sprint_table_tab:
-                st.markdown("### チーム別 総スプリント数ランキング")
-                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_sprints', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_sprints:Q', title='総スプリント数'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', 'total_sprints']
-                ).properties(height=600)
-                st.altair_chart(chart_sprints, use_container_width=True)
+                actual_var = selected_ranking_var.replace(' (km)', '')
+                
+                if actual_var not in team_stats_aggregated.columns:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                else:
+                    plot_data = team_stats_aggregated.copy()
+                    
+                    if selected_ranking_var == 'Distance (km)':
+                        var_to_rank = 'Distance (km)'
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = '.1f'
+                    else:
+                        var_to_rank = actual_var
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = ',.0f'
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_sprints_reset),
-                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                )
+                    # Altair グラフ描画
+                    chart = alt.Chart(plot_data).mark_bar().encode(
+                        y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                            field=var_to_rank, op='sum', order='descending'
+                        ), title='チーム'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                        tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
+                    ).properties(height=600)
+                    st.altair_chart(chart, use_container_width=True)
+
+                    # Excelダウンロードボタン
+                    download_df = plot_data[['Team', var_to_rank]]
+                    st.download_button(
+                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        data=to_excel(download_df),
+                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    )
 
         except KeyError as e:
             st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -658,57 +696,72 @@ elif selected == 'J3':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        Distance_tab, Sprint_table_tab, Custom_tab, Trend_tab = st.tabs(['総走行距離 (km)', '総スプリント数','カスタムランキング', 'シーズン動向分析'])
+        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
+        Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            team_stats_aggregated = df.groupby('Team').agg(
-                total_distance_m=('Distance', 'sum'),
-                total_sprints=('Sprint Count', 'sum')
-            ).reset_index()
+            # チーム別の総計を計算 (すべてのavailable_varsを計算)
+            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
 
-            team_stats_aggregated['total_distance_km'] = team_stats_aggregated['total_distance_m'] / 1000
-            sorted_distance_reset = team_stats_aggregated.sort_values(by='total_distance_km', ascending=False).reset_index(drop=True)
-            sorted_sprints_reset = team_stats_aggregated.sort_values(by='total_sprints', ascending=False).reset_index(drop=True)
-            
-            with Distance_tab:
-                st.markdown("### チーム別 総走行距離ランキング (km)")
-                chart_distance = alt.Chart(sorted_distance_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_distance_km', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_distance_km:Q', title='総走行距離 (km)'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', alt.Tooltip('total_distance_km', format='.1f')]
-                ).properties(height=600)
-                st.altair_chart(chart_distance, use_container_width=True)
+            # Distanceをkmに変換した列を追加
+            if 'Distance' in team_stats_aggregated.columns:
+                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
+                if 'Distance (km)' not in available_vars:
+                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
+                else:
+                    display_vars = available_vars
+            else:
+                display_vars = available_vars
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_distance_reset),
-                    file_name=f'{selected}_Total_Distance_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            with Aggregate_Ranking_tab:
+                
+                st.markdown("### 📊 チーム別 総計ランキング")
+                
+                # ★ セレクトボックスの追加
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
+
+                selected_ranking_var = st.selectbox(
+                    '表示する指標を選択', 
+                    options=ranking_options, 
+                    index=0, 
+                    key='J3_ranking_var'
                 )
 
-            with Sprint_table_tab:
-                st.markdown("### チーム別 総スプリント数ランキング")
-                chart_sprints = alt.Chart(sorted_sprints_reset).mark_bar().encode(
-                    y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                        field='total_sprints', op='sum', order='descending'
-                    ), title='チーム'),
-                    x=alt.X('total_sprints:Q', title='総スプリント数'),
-                    color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
-                    tooltip=['Team', 'total_sprints']
-                ).properties(height=600)
-                st.altair_chart(chart_sprints, use_container_width=True)
+                actual_var = selected_ranking_var.replace(' (km)', '')
+                
+                if actual_var not in team_stats_aggregated.columns:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
+                else:
+                    plot_data = team_stats_aggregated.copy()
+                    
+                    if selected_ranking_var == 'Distance (km)':
+                        var_to_rank = 'Distance (km)'
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = '.1f'
+                    else:
+                        var_to_rank = actual_var
+                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        tooltip_format = ',.0f'
 
-                # ★ Excelダウンロードボタン
-                st.download_button(
-                    label="ランキングデータをExcelでダウンロード",
-                    data=to_excel(sorted_sprints_reset),
-                    file_name=f'{selected}_Total_Sprints_Ranking.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                )
+                    # Altair グラフ描画
+                    chart = alt.Chart(plot_data).mark_bar().encode(
+                        y=alt.Y('Team:N', sort=alt.EncodingSortField(
+                            field=var_to_rank, op='sum', order='descending'
+                        ), title='チーム'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
+                        tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
+                    ).properties(height=600)
+                    st.altair_chart(chart, use_container_width=True)
+
+                    # Excelダウンロードボタン
+                    download_df = plot_data[['Team', var_to_rank]]
+                    st.download_button(
+                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        data=to_excel(download_df),
+                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    )
 
         except KeyError as e:
             st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
