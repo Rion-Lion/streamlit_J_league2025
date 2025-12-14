@@ -8,3 +8,4 @@ matplotlib
 seaborn
 mplsoccer
 vega-datasets
+xlsxwriter
