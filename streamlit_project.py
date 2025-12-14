@@ -120,10 +120,11 @@ TEAM_COLORS = {
     'Giravanz Kitakyushu':"#E8BD00",'Tegevajaro Miyazaki FC':"#F6E066",'Kagoshima United FC':"#19315F",'FC Ryūkyū':"#AA131B",
 }
 
-available_vars = ['Distance','Running Distance','M/min','HSR Distance','Sprint Count','HI Distance','HI Count',
+available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','HI Distance','HI Count',
                   'Distance TIP','Running Distance TIP','HSR Distance TIP','HSR Count TIP',
                   'Sprint Distance TIP','Sprint Count TIP','Distance OTIP','Running Distance OTIP','HSR Distance OTIP','HSR Count OTIP',
                   'Sprint Distance OTIP','Sprint Count OTIP'] # TIP/OTIP指標を追加
+RANKING_METHODS = ['Total', 'Average', 'Max', 'Min'] # 集計方法の定義
 
 
 # --- 2. 描画ロジック関数 (共通関数) ---
@@ -138,7 +139,7 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
 
     col1, col2 = st.columns(2)
     with col1:
-        rank_method = st.selectbox('集計方法 (Ranking Method)', ['Average', 'Total', 'Max', 'Min'], key=f"rank_method_{league_name}") 
+        rank_method = st.selectbox('集計方法 (Ranking Method)', RANKING_METHODS, key=f"rank_method_{league_name}") 
     with col2:
         rank_var = st.selectbox('評価指標 (Metric to Rank)', available_vars, key=f"rank_var_{league_name}") 
     
@@ -198,7 +199,7 @@ def render_custom_ranking(df: pd.DataFrame, league_name: str, team_colors: dict,
             if column == 'Team':
                 text_label = f'{rank}     {team_name}' if rank < 10 else f'{rank}   {team_name}'
             else:
-                # Distanceをkmに変換して表示
+                # Distanceをkmに変換して表示 (Totalの場合のみ)
                 if column == 'Distance' and rank_method == 'Total':
                     text_label = f'{round(indexdf_short[column].iloc[i] / 1000, 2)} km'
                 else:
@@ -447,7 +448,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     fig.update_xaxes(dtick=1)
     
     st.plotly_chart(fig, use_container_width=True)
-    
+
+
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
@@ -499,65 +501,76 @@ if selected == 'J1':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
         Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            # チーム別の総計を計算 (すべてのavailable_varsを計算)
-            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
-
-            # Distanceをkmに変換した列を追加
-            if 'Distance' in team_stats_aggregated.columns:
-                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
-                # available_varsにも'Distance (km)'を追加（表示用）
-                if 'Distance (km)' not in available_vars:
-                     # グラフ表示用に一時的に追加。元のavailable_varsは変更しない
-                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
-                else:
-                    display_vars = available_vars
-            else:
-                display_vars = available_vars
-
             with Aggregate_Ranking_tab:
                 
-                st.markdown("### 📊 チーム別 総計ランキング")
+                st.markdown("### 📊 チーム別 ランキング")
+
+                # ★ 集計方法の選択を追加
+                col_agg, col_var = st.columns(2)
+                with col_agg:
+                    ranking_method = st.selectbox(
+                        '集計方法を選択', 
+                        options=RANKING_METHODS, 
+                        index=0, 
+                        key='J1_ranking_method'
+                    )
                 
-                # ★ セレクトボックスの追加
-                # 'Distance'が元のavailable_varsにある場合、'Distance (km)'をリストに追加して選択肢とする
-                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
-                
-                selected_ranking_var = st.selectbox(
-                    '表示する指標を選択', 
-                    options=ranking_options, 
-                    index=0, 
-                    key='J1_ranking_var'
-                )
+                # 'Distance'を'Distance (km)'に置き換えた表示用リストを作成
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' and ranking_method == 'Total' else v for v in available_vars]
+
+                with col_var:
+                    selected_ranking_var = st.selectbox(
+                        '表示する指標を選択', 
+                        options=ranking_options, 
+                        index=0, 
+                        key='J1_ranking_var'
+                    )
 
                 # 実際に集計に使用する列名 (kmをmに戻す)
                 actual_var = selected_ranking_var.replace(' (km)', '')
 
-                if actual_var not in team_stats_aggregated.columns:
-                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
-                else:
+                # データ集計（選択された方法に応じて切り替え）
+                if actual_var in df.columns:
+                    if ranking_method == 'Total':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
+                    elif ranking_method == 'Average':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].mean().reset_index()
+                    elif ranking_method == 'Max':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].max().reset_index()
+                    elif ranking_method == 'Min':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
+                    else:
+                        st.error("無効な集計方法が選択されました。")
+                        return
+
                     # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
                     
-                    # 選択された指標がDistanceで、表示がkmの場合の調整
+                    # 選択された指標がDistanceで、集計方法がTotalの場合の調整
                     if selected_ranking_var == 'Distance (km)':
                         var_to_rank = 'Distance (km)'
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        # Distanceをkmに変換
+                        plot_data[var_to_rank] = plot_data[actual_var] / 1000
                         tooltip_format = '.1f'
+                        sort_ascending = False
                     else:
                         var_to_rank = actual_var
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
-                        tooltip_format = ',.0f'
+                        # Minの場合は昇順
+                        sort_ascending = True if ranking_method == 'Min' else False
+                        tooltip_format = ',.0f' if ranking_method in ['Total', 'Max'] and 'Count' in var_to_rank else '.2f'
+
+                    # ランキングのソート
+                    plot_data = plot_data.sort_values(by=var_to_rank, ascending=sort_ascending).reset_index(drop=True)
 
                     # Altair グラフ描画
                     chart = alt.Chart(plot_data).mark_bar().encode(
                         y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                            field=var_to_rank, op='sum', order='descending'
+                            field=var_to_rank, op='sum', order='descending' if not sort_ascending else 'ascending'
                         ), title='チーム'),
-                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'{ranking_method} {selected_ranking_var}'),
                         color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
                         tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
                     ).properties(height=600)
@@ -566,12 +579,13 @@ if selected == 'J1':
                     # Excelダウンロードボタン (描画に使ったデータフレームを使用)
                     download_df = plot_data[['Team', var_to_rank]]
                     st.download_button(
-                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        label=f"{ranking_method} {selected_ranking_var} ランキングをExcelでダウンロード",
                         data=to_excel(download_df),
-                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        file_name=f'{selected}_{ranking_method}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
-
+                else:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
 
         except KeyError as e:
             st.error(f"J1データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -579,6 +593,7 @@ if selected == 'J1':
             st.error(f"J1で予期せぬエラーが発生しました: {e}")
 
         with Custom_tab:
+            # Custom_tabの集計方法もRANKING_METHODSを使用するように変更
             render_custom_ranking(df, 'J1', TEAM_COLORS, available_vars)
         
         # シーズン動向分析
@@ -601,59 +616,70 @@ elif selected == 'J2':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
         Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            # チーム別の総計を計算 (すべてのavailable_varsを計算)
-            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
-
-            # Distanceをkmに変換した列を追加
-            if 'Distance' in team_stats_aggregated.columns:
-                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
-                if 'Distance (km)' not in available_vars:
-                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
-                else:
-                    display_vars = available_vars
-            else:
-                display_vars = available_vars
-
             with Aggregate_Ranking_tab:
                 
-                st.markdown("### 📊 チーム別 総計ランキング")
-                
-                # ★ セレクトボックスの追加
-                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
+                st.markdown("### 📊 チーム別 ランキング")
 
-                selected_ranking_var = st.selectbox(
-                    '表示する指標を選択', 
-                    options=ranking_options, 
-                    index=0, 
-                    key='J2_ranking_var'
-                )
+                # ★ 集計方法の選択を追加
+                col_agg, col_var = st.columns(2)
+                with col_agg:
+                    ranking_method = st.selectbox(
+                        '集計方法を選択', 
+                        options=RANKING_METHODS, 
+                        index=0, 
+                        key='J2_ranking_method'
+                    )
+                
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' and ranking_method == 'Total' else v for v in available_vars]
+
+                with col_var:
+                    selected_ranking_var = st.selectbox(
+                        '表示する指標を選択', 
+                        options=ranking_options, 
+                        index=0, 
+                        key='J2_ranking_var'
+                    )
 
                 actual_var = selected_ranking_var.replace(' (km)', '')
-                
-                if actual_var not in team_stats_aggregated.columns:
-                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
-                else:
+
+                # データ集計（選択された方法に応じて切り替え）
+                if actual_var in df.columns:
+                    if ranking_method == 'Total':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
+                    elif ranking_method == 'Average':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].mean().reset_index()
+                    elif ranking_method == 'Max':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].max().reset_index()
+                    elif ranking_method == 'Min':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
+                    else:
+                        st.error("無効な集計方法が選択されました。")
+                        return
+
+                    # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
                     
                     if selected_ranking_var == 'Distance (km)':
                         var_to_rank = 'Distance (km)'
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        plot_data[var_to_rank] = plot_data[actual_var] / 1000
                         tooltip_format = '.1f'
+                        sort_ascending = False
                     else:
                         var_to_rank = actual_var
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
-                        tooltip_format = ',.0f'
+                        sort_ascending = True if ranking_method == 'Min' else False
+                        tooltip_format = ',.0f' if ranking_method in ['Total', 'Max'] and 'Count' in var_to_rank else '.2f'
+
+                    plot_data = plot_data.sort_values(by=var_to_rank, ascending=sort_ascending).reset_index(drop=True)
 
                     # Altair グラフ描画
                     chart = alt.Chart(plot_data).mark_bar().encode(
                         y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                            field=var_to_rank, op='sum', order='descending'
+                            field=var_to_rank, op='sum', order='descending' if not sort_ascending else 'ascending'
                         ), title='チーム'),
-                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'{ranking_method} {selected_ranking_var}'),
                         color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
                         tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
                     ).properties(height=600)
@@ -662,11 +688,13 @@ elif selected == 'J2':
                     # Excelダウンロードボタン
                     download_df = plot_data[['Team', var_to_rank]]
                     st.download_button(
-                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        label=f"{ranking_method} {selected_ranking_var} ランキングをExcelでダウンロード",
                         data=to_excel(download_df),
-                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        file_name=f'{selected}_{ranking_method}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
+                else:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
 
         except KeyError as e:
             st.error(f"J2データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
@@ -696,59 +724,70 @@ elif selected == 'J3':
         domain_list = list(filtered_colors.keys())
         range_list = list(filtered_colors.values())
         
-        # ★ タブの再定義: 「総走行距離」と「総スプリント数」を「集計ランキング」に統合
         Aggregate_Ranking_tab, Custom_tab, Trend_tab = st.tabs(['集計ランキング', 'カスタムランキング', 'シーズン動向分析'])
         
         try:
-            # チーム別の総計を計算 (すべてのavailable_varsを計算)
-            team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
-
-            # Distanceをkmに変換した列を追加
-            if 'Distance' in team_stats_aggregated.columns:
-                team_stats_aggregated['Distance (km)'] = team_stats_aggregated['Distance'] / 1000
-                if 'Distance (km)' not in available_vars:
-                     display_vars = ['Distance (km)'] + [v for v in available_vars if v != 'Distance']
-                else:
-                    display_vars = available_vars
-            else:
-                display_vars = available_vars
-
             with Aggregate_Ranking_tab:
                 
-                st.markdown("### 📊 チーム別 総計ランキング")
-                
-                # ★ セレクトボックスの追加
-                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' else v for v in available_vars]
+                st.markdown("### 📊 チーム別 ランキング")
 
-                selected_ranking_var = st.selectbox(
-                    '表示する指標を選択', 
-                    options=ranking_options, 
-                    index=0, 
-                    key='J3_ranking_var'
-                )
+                # ★ 集計方法の選択を追加
+                col_agg, col_var = st.columns(2)
+                with col_agg:
+                    ranking_method = st.selectbox(
+                        '集計方法を選択', 
+                        options=RANKING_METHODS, 
+                        index=0, 
+                        key='J3_ranking_method'
+                    )
+                
+                ranking_options = [v.replace('Distance', 'Distance (km)') if v == 'Distance' and ranking_method == 'Total' else v for v in available_vars]
+
+                with col_var:
+                    selected_ranking_var = st.selectbox(
+                        '表示する指標を選択', 
+                        options=ranking_options, 
+                        index=0, 
+                        key='J3_ranking_var'
+                    )
 
                 actual_var = selected_ranking_var.replace(' (km)', '')
                 
-                if actual_var not in team_stats_aggregated.columns:
-                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
-                else:
+                # データ集計（選択された方法に応じて切り替え）
+                if actual_var in df.columns:
+                    if ranking_method == 'Total':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].sum().reset_index()
+                    elif ranking_method == 'Average':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].mean().reset_index()
+                    elif ranking_method == 'Max':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].max().reset_index()
+                    elif ranking_method == 'Min':
+                        team_stats_aggregated = df.groupby('Team')[available_vars].min().reset_index()
+                    else:
+                        st.error("無効な集計方法が選択されました。")
+                        return
+
+                    # グラフ描画用データフレームを準備
                     plot_data = team_stats_aggregated.copy()
                     
                     if selected_ranking_var == 'Distance (km)':
                         var_to_rank = 'Distance (km)'
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
+                        plot_data[var_to_rank] = plot_data[actual_var] / 1000
                         tooltip_format = '.1f'
+                        sort_ascending = False
                     else:
                         var_to_rank = actual_var
-                        plot_data = plot_data.sort_values(by=var_to_rank, ascending=False).reset_index(drop=True)
-                        tooltip_format = ',.0f'
+                        sort_ascending = True if ranking_method == 'Min' else False
+                        tooltip_format = ',.0f' if ranking_method in ['Total', 'Max'] and 'Count' in var_to_rank else '.2f'
+
+                    plot_data = plot_data.sort_values(by=var_to_rank, ascending=sort_ascending).reset_index(drop=True)
 
                     # Altair グラフ描画
                     chart = alt.Chart(plot_data).mark_bar().encode(
                         y=alt.Y('Team:N', sort=alt.EncodingSortField(
-                            field=var_to_rank, op='sum', order='descending'
+                            field=var_to_rank, op='sum', order='descending' if not sort_ascending else 'ascending'
                         ), title='チーム'),
-                        x=alt.X(f'{var_to_rank}:Q', title=f'総計 {selected_ranking_var}'),
+                        x=alt.X(f'{var_to_rank}:Q', title=f'{ranking_method} {selected_ranking_var}'),
                         color=alt.Color('Team:N', scale=alt.Scale(domain=domain_list, range=range_list)),
                         tooltip=['Team', alt.Tooltip(var_to_rank, format=tooltip_format, title=selected_ranking_var)]
                     ).properties(height=600)
@@ -757,11 +796,13 @@ elif selected == 'J3':
                     # Excelダウンロードボタン
                     download_df = plot_data[['Team', var_to_rank]]
                     st.download_button(
-                        label=f"{selected_ranking_var} ランキングをExcelでダウンロード",
+                        label=f"{ranking_method} {selected_ranking_var} ランキングをExcelでダウンロード",
                         data=to_excel(download_df),
-                        file_name=f'{selected}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
+                        file_name=f'{selected}_{ranking_method}_{selected_ranking_var.replace(" ", "_")}_Ranking.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
+                else:
+                     st.warning(f"データに '{actual_var}' の列が見つかりません。")
 
         except KeyError as e:
             st.error(f"J3データの集計に失敗しました。CSVファイルに必須の列が見つかりません: {e}")
