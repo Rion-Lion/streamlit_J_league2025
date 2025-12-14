@@ -427,13 +427,13 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
+        # X軸の範囲を [0, 38] に固定
+        xaxis=dict(range=[0, 38]) 
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
-    
     st.plotly_chart(fig, use_container_width=True)
-
-
+    
 # --- 3. メインロジック ---
 
 # サイドバーで選択と、その結果の変数 `selected` の取得のみを行う
