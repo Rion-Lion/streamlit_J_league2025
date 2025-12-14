@@ -10,6 +10,7 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
+from io import BytesIO
 
 # --- 0. グローバル設定 ---
 st.set_page_config(layout="wide")
@@ -27,8 +28,7 @@ LEAGUE_COLOR_MAP = {
     'J1': '#E6002D', # 赤
     'J2': '#127A3A', # 緑
     'J3': '#014099', # 青
-} 
-
+}
 @st.cache_data(ttl=60*15)
 def get_data(league_key):
     file_name = LEAGUE_FILE_MAP.get(league_key, LEAGUE_FILE_MAP['J1'])
@@ -36,9 +36,7 @@ def get_data(league_key):
     try:
         # ローディングインジケータを表示 (Streamlit Cloudで役立つ)
         with st.spinner(f'{league_key}データをロード中...'):
-
-            df = pd.read_csv(file_path) # 既存の仮パスを使用
-            
+            df = pd.read_csv(file_path)
             # リーグ情報を追加
             df['League'] = league_key
 
@@ -71,9 +69,7 @@ def get_data(league_key):
                  
             return df
     except Exception as e:
-        # st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。ファイルが存在するか確認してください。")
-        # デバッグ情報としてエラーを表示しつつ、空のデータフレームを返す
-        st.error(f"データロードエラー: {e}")
+        st.error(f"{league_key} データ ({file_name}) のロードに失敗しました。ファイルが存在するか確認してください。")
         return pd.DataFrame()
 
 # 全リーグデータを結合する関数 (HOME画面用)
@@ -90,6 +86,20 @@ def get_all_league_data():
         
     combined_df = pd.concat(all_dfs, ignore_index=True)
     return combined_df
+
+# 📌 Excel変換関数
+@st.cache_data
+def convert_df_to_xlsx(df):
+    """データフレームをExcelファイル（バイナリ形式）に変換する"""
+    output = BytesIO()
+    # engine='xlsxwriter'を明示的に指定
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # index=FalseでインデックスをExcelに出力しない
+        df.to_excel(writer, index=False, sheet_name='JLeagueData')
+    
+    # ファイルポインタを先頭に戻し、バイナリデータを取得
+    processed_data = output.getvalue()
+    return processed_data
 
 # 📌 チームカラー定義 (グローバルに配置)
 TEAM_COLORS = {
@@ -318,6 +328,8 @@ def render_scatter_plot(df: pd.DataFrame, available_vars: list, team_colors: dic
     
     st.plotly_chart(fig, use_container_width=True)
 
+
+# 💡 修正: render_trend_analysis関数内の対戦相手データ集計処理をMatchdayで一意になるように保証
 def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict, available_vars: list):
     """チームごとのシーズン動向を節ベースで分析する折れ線グラフを描画する (対戦相手比較機能付き)"""
     st.markdown(f"### 📈 シーズン動向分析 ({league_name})")
@@ -358,7 +370,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         opponent_data = df[df['Match ID'].isin(match_ids) & (df['Team'] != selected_team)].copy()
         
         if not opponent_data.empty:
-            # MatchdayとMatch IDの対応表を作成 (自チームデータから一意の対応を取得)
+            # MatchdayとMatch IDの対応表を作成 (Matchday -> Match ID -> 1:1を保証)
+            # 自チームのデータからMatch IDとMatchdayの対応を取得することで、この対応は一意であると仮定
             matchday_map = team_match_df[['Matchday', 'Match ID']].drop_duplicates()
             
             # 対戦相手のMatch IDごとの平均値を計算 (Match IDごとに1行に集約)
@@ -372,13 +385,9 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
             # グラフ用のデータフレームに整理
             opponent_match_df = opponent_match_df.rename(columns={selected_var: f'{selected_var} (対戦相手)'})
             
-            # 最終確認と厳密な重複排除：MatchdayとMatch ID、Team（対戦相手名）の組み合わせで一意になるようにする
-            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(
-                subset=['Matchday', 'Match ID', 'Team'], 
-                keep='first'
-            )
-            # Matchdayを基準にソート (グラフ表示順序のため)
-            opponent_match_df = opponent_match_df.sort_values(by='Matchday')
+            # 📌 念のためMatchdayとMatch IDをキーに重複を確認し、ソート
+            opponent_match_df = opponent_match_df.sort_values('Matchday').drop_duplicates(subset=['Matchday', 'Match ID'], keep='first')
+
 
     # 4. Plotly Graph Objectsで折れ線グラフ描画
     team_color = team_colors.get(selected_team, '#4A2E19')
@@ -387,7 +396,7 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     fig = go.Figure()
     
     # --- 自チームのホバーテンプレート ---
-    hovertemplate_self = f" %{{y:.2f}}<extra>自チーム</extra>"
+    hovertemplate_self = f"<b>節 %{{x}}</b>: %{{y:.2f}}<extra>自チーム</extra>"
     custom_data_self = None
     
     fig.add_trace(go.Scatter(
@@ -403,9 +412,12 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
     
     # --- 対戦相手のホバーテンプレート ---
     if show_opponent and opponent_match_df is not None and not opponent_match_df.empty:
+        # Matchdayの昇順にソート（グラフ表示順序のため）
+        opponent_match_df = opponent_match_df.sort_values(by='Matchday')
+
         # 相手名が先、値が後になるように順序を入れ替え
         custom_data_opponent = opponent_match_df[['Team']].values.tolist() 
-        hovertemplate_opponent = f"%{{customdata[0]}}<br>: %{{y:.2f}}<extra>対戦相手</extra>"
+        hovertemplate_opponent = f"<b>対戦相手</b>: %{{customdata[0]}}<br><b>節 %{{x}}</b>: %{{y:.2f}}<extra>対戦相手</extra>"
         
         fig.add_trace(go.Scatter(
             x=opponent_match_df['Matchday'],
@@ -430,8 +442,6 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
-        # X軸の範囲
-        xaxis=dict(range=[0, 39]) 
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
