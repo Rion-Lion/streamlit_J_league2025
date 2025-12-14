@@ -427,8 +427,8 @@ def render_trend_analysis(df: pd.DataFrame, league_name: str, team_colors: dict,
         yaxis_title=f'{selected_var} (試合平均)',
         hovermode="x unified",
         height=550,
-        # X軸の範囲を [0, 38] に固定
-        xaxis=dict(range=[0, 38]) 
+        # X軸の範囲を [0, 39] に固定
+        xaxis=dict(range=[0, 39]) 
     )
     # X軸の目盛りを整数にする
     fig.update_xaxes(dtick=1)
