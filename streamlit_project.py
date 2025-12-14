@@ -113,7 +113,7 @@ TEAM_COLORS = {
     'Giravanz Kitakyushu':"#E8BD00",'Tegevajaro Miyazaki FC':"#F6E066",'Kagoshima United FC':"#19315F",'FC Ryūkyū':"#AA131B",
 }
 
-available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','HI Distance','HI Count',
+available_vars = ['Distance','Running Distance','M/min','HSR Distance','Sprint Count','HI Distance','HI Count',
                   'Distance TIP','Running Distance TIP','HSR Distance TIP','HSR Count TIP',
                   'Sprint Distance TIP','Sprint Count TIP','Distance OTIP','Running Distance OTIP','HSR Distance OTIP','HSR Count OTIP',
                   'Sprint Distance OTIP','Sprint Count OTIP'] # TIP/OTIP指標を追加
