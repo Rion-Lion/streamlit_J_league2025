@@ -10,7 +10,6 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 from mplsoccer import Pitch, VerticalPitch
-from io import BytesIO
 
 # --- 0. グローバル設定 ---
 st.set_page_config(layout="wide")
@@ -87,20 +86,6 @@ def get_all_league_data():
     combined_df = pd.concat(all_dfs, ignore_index=True)
     return combined_df
 
-# 📌 Excel変換関数
-@st.cache_data
-def convert_df_to_xlsx(df):
-    """データフレームをExcelファイル（バイナリ形式）に変換する"""
-    output = BytesIO()
-    # engine='xlsxwriter'を明示的に指定
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # index=FalseでインデックスをExcelに出力しない
-        df.to_excel(writer, index=False, sheet_name='JLeagueData')
-    
-    # ファイルポインタを先頭に戻し、バイナリデータを取得
-    processed_data = output.getvalue()
-    return processed_data
-
 # 📌 チームカラー定義 (グローバルに配置)
 TEAM_COLORS = {
     #J1 Teams
@@ -123,7 +108,7 @@ TEAM_COLORS = {
     'Giravanz Kitakyushu':"#E8BD00",'Tegevajaro Miyazaki FC':"#F6E066",'Kagoshima United FC':"#19315F",'FC Ryūkyū':"#AA131B",
 }
 
-available_vars = ['Distance','Running Distance','M/min','HSR Distance','Sprint Count','HI Distance','HI Count',
+available_vars = ['Distance','Running Distance','HSR Distance','Sprint Count','HI Distance','HI Count',
                   'Distance TIP','Running Distance TIP','HSR Distance TIP','HSR Count TIP',
                   'Sprint Distance TIP','Sprint Count TIP','Distance OTIP','Running Distance OTIP','HSR Distance OTIP','HSR Count OTIP',
                   'Sprint Distance OTIP','Sprint Count OTIP'] # TIP/OTIP指標を追加
